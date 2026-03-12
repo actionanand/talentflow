@@ -315,3 +315,301 @@ Custom CSS variables defined in `src/styles.css` provide a consistent sea/nature
 | `--surface` | `rgba(255,255,255,0.74)` | `rgba(16,30,34,0.8)` | Glass surfaces |
 
 Theme is persisted in `localStorage` and initialised before first paint (inline `<script>` in `index.html`) to prevent flash of wrong theme.
+
+---
+
+## Migration Log — From TanStack Start (SSR) to Vite SPA for GitHub Pages
+
+This section documents every change made to convert the project from a TanStack Start / Vinxi SSR build to a standard Vite SPA, and why each change was necessary. It exists as a permanent reference in case the project is revisited, forked, or needs to be partially reverted.
+
+---
+
+### The original problem — `dist/client` + `dist/server` output
+
+The project was bootstrapped from the **TanStack Start** template, which uses **Vinxi** (built on top of Vite) as its build orchestrator. TanStack Start is an SSR (Server-Side Rendering) framework. Its default build produces **two output folders**:
+
+```
+dist/
+├── client/     ← JS/CSS bundles for the browser
+│   ├── _build/
+│   │   ├── index-[hash].js
+│   │   └── index-[hash].css
+│   └── (no index.html)
+└── server/     ← Node.js server bundle
+    └── index.mjs
+```
+
+**The critical issue**: `dist/client/` contained only JS and CSS asset chunks. **There was no `index.html`**. GitHub Pages is a static file server — it needs a real `index.html` to serve as the page shell. Without it, every request returned GitHub's own 404 page.
+
+Multiple approaches were tried first:
+
+| Attempt | What was tried | Why it failed |
+|---|---|---|
+| `NITRO_PRESET=static` env var | Set via `env:` in GitHub Actions | Vinxi doesn't reliably read this from environment — `app.config.ts` is authoritative |
+| `server.preset: 'static'` in `app.config.ts` | Correct way to set Nitro preset | Build still produced no `index.html` in CI environment |
+| `react.defaultSsr: false` in `app.config.ts` | Supposed to disable SSR | `StartClient` export referenced in `src/client.tsx` doesn't exist in this version of `@tanstack/react-start` — build error |
+| Auto-detect output dir | `find` script in CI to locate `index.html` | Nothing to find — the build never generated one |
+
+The root cause: **TanStack Start / Vinxi is architecturally an SSR framework**. Disabling SSR via config flags is partially supported and version-dependent. The reliable solution was to step outside TanStack Start's build pipeline entirely and use **standard Vite** with TanStack Router.
+
+---
+
+### The solution — Standard Vite SPA
+
+Replace Vinxi/TanStack Start as the build tool with plain **Vite + `TanStackRouterVite()` plugin**. This gives:
+- A proper `index.html` Vite entry point (the standard Vite SPA pattern)
+- A clean `dist/` output with a real `index.html`
+- TanStack Router's file-based route generation still works via the Vite plugin
+- No Node.js server required at runtime
+
+---
+
+### File-by-file changes
+
+#### 1. `index.html` — **Created** (new file)
+
+**Before**: Did not exist. Vinxi generated the HTML document at runtime via `shellComponent` in `__root.tsx`.
+
+**After**:
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TalentFlow – HR & Recruitment Dashboard</title>
+    <!-- Theme init script — prevents flash of wrong theme on load -->
+    <script>/* inline theme detection */</script>
+  </head>
+  <body class="font-sans antialiased ...">
+    <div id="app"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+```
+
+**Why**: This is the standard Vite SPA entry point. Vite reads this file, processes `src/main.tsx`, and outputs `dist/index.html` referencing the hashed JS/CSS bundles. Without this file, Vite has no entry and produces no HTML.
+
+The theme init `<script>` and `<body>` classes were moved here from `__root.tsx`'s `shellComponent` since that function no longer runs.
+
+---
+
+#### 2. `src/main.tsx` — **Created** (new file)
+
+**Before**: Did not exist. TanStack Start auto-generated its own client entry that bootstrapped React with SSR hydration.
+
+**After**:
+```tsx
+import { StrictMode } from 'react'
+import ReactDOM from 'react-dom/client'
+import { RouterProvider } from '@tanstack/react-router'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { getRouter } from './router'
+import { queryClient } from './query/client'
+import './styles.css'
+
+const router = getRouter()
+
+ReactDOM.createRoot(document.getElementById('app')!).render(
+  <StrictMode>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  </StrictMode>,
+)
+```
+
+**Why**: Standard React SPA bootstrap — `createRoot` mounts the app into `<div id="app">`. `QueryClientProvider` wraps the entire tree here (moved from `__root.tsx`). `RouterProvider` hands off all rendering to TanStack Router.
+
+---
+
+#### 3. `src/routes/__root.tsx` — **Converted**
+
+**Before** (TanStack Start SSR pattern):
+```tsx
+import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
+import { QueryClientProvider } from '@tanstack/react-query'
+
+export const Route = createRootRoute({
+  head: () => ({ meta: [...], links: [...] }),   // ← SSR head injection
+  shellComponent: RootDocument,                  // ← generates full <html> document
+})
+
+function RootDocument({ children }) {
+  return (
+    <html lang="en">
+      <head><HeadContent /></head>
+      <body>
+        <QueryClientProvider client={queryClient}>  {/* ← was here */}
+          <Header />{children}<Footer />
+          <TanStackDevtools />
+        </QueryClientProvider>
+        <Scripts />   {/* ← SSR script injection */}
+      </body>
+    </html>
+  )
+}
+```
+
+**After** (standard SPA layout):
+```tsx
+import { Outlet, createRootRoute } from '@tanstack/react-router'
+import Footer from '../components/Footer'
+import Header from '../components/Header'
+
+export const Route = createRootRoute({
+  component: RootLayout,   // ← plain component, not shellComponent
+})
+
+function RootLayout() {
+  return (
+    <>
+      <Header />
+      <Outlet />   {/* ← child routes render here */}
+      <Footer />
+    </>
+  )
+}
+```
+
+**Why**: `shellComponent` is a TanStack Start / SSR-only concept that renders the full `<html>` document. In a SPA the browser already has the full HTML from `index.html` — the root component only needs to render the app layout inside `<div id="app">`. `HeadContent`, `Scripts`, and `QueryClientProvider` were removed from here because they moved to `index.html` and `src/main.tsx` respectively.
+
+---
+
+#### 4. `vite.config.ts` — **Replaced**
+
+**Before**:
+```ts
+import { tanstackStart } from '@tanstack/react-start/plugin/vite'
+import { devtools } from '@tanstack/devtools-vite'
+
+export default defineConfig({
+  plugins: [devtools(), tanstackStart(), viteReact(), tailwindcss()],
+})
+```
+
+**After**:
+```ts
+import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
+import pkg from './package.json' with { type: 'json' }
+
+const isGhPages = process.env.DEPLOY_TARGET === 'gh-pages'
+const base = isGhPages ? `/${pkg.name}/` : '/'
+
+export default defineConfig({
+  base,
+  plugins: [TanStackRouterVite(), viteReact(), tailwindcss()],
+  build: { outDir: 'dist' },
+})
+```
+
+**Key changes**:
+
+| Change | Reason |
+|---|---|
+| Removed `tanstackStart()` | This is the Vinxi SSR plugin — removing it means Vite builds as a standard SPA and outputs `dist/index.html` |
+| Removed `devtools()` | TanStack devtools Vite plugin is Start-specific |
+| Added `TanStackRouterVite()` | Replaces Start's route generation — scans `src/routes/`, generates `routeTree.gen.ts`, watches for changes in dev |
+| Added `base` | GitHub Pages serves the project at `username.github.io/talentflow/`. Without this, all asset paths (`/assets/main.js`) are wrong and return 404. `base` is read from `pkg.name` so it never goes stale |
+| `DEPLOY_TARGET=gh-pages` guard | `base: /talentflow/` is **only** applied for GitHub Pages builds. `npm run build` (Netlify, Vercel, local) uses `base: /` |
+| `build.outDir: 'dist'` | Makes the output directory explicit |
+
+---
+
+#### 5. `src/router.tsx` — **Updated**
+
+Added `basepath` to the router config:
+
+```ts
+const basepath = import.meta.env.BASE_URL ?? '/'
+
+export function getRouter() {
+  const router = createTanStackRouter({
+    routeTree,
+    basepath,   // ← new
+    context: { queryClient },
+    ...
+  })
+}
+```
+
+**Why this was critical**: Vite's `base` config only affects **static asset URLs** (JS, CSS, images). It does **not** affect TanStack Router's internal link generation. Without `basepath`, `<Link to="/about">` resolved to `https://actionanand.github.io/about` (root-level) instead of `https://actionanand.github.io/talentflow/about`. Every navigation left the deployment sub-path and hit GitHub's 404.
+
+`import.meta.env.BASE_URL` is Vite's injected constant — it equals whatever `base` is set to in `vite.config.ts` at build time. This means the router and Vite are always in sync without duplication.
+
+---
+
+#### 6. `package.json` — **Added `build:gh` script**
+
+```json
+"build":    "vite build",
+"build:gh": "vite build --mode gh-pages"
+```
+
+And in `vite.config.ts`, the `DEPLOY_TARGET` env var is set when the `gh-pages` mode is active:
+
+```ts
+const isGhPages = process.env.DEPLOY_TARGET === 'gh-pages'
+```
+
+**Why separate scripts**: `npm run build` must remain clean for Netlify, Vercel, Cloudflare Pages, or Docker deployments where the app is served at the root `/`. If `base: /talentflow/` were always applied, all non-GitHub deployments would have broken asset paths and broken router links.
+
+---
+
+#### 7. `app.config.ts` — **Simplified**
+
+**Before** (during failed SSR-disable attempts):
+```ts
+export default defineConfig({
+  react: { defaultSsr: false },  // ← had various presets here
+})
+```
+
+**After**:
+```ts
+export default defineConfig({})
+```
+
+**Why kept at all**: `app.config.ts` is read by TanStack Router's tooling for route code generation. It no longer controls the build — that's now `vite.config.ts`. It is retained as an empty config to avoid breaking the `TanStackRouterVite()` plugin's expectations.
+
+---
+
+#### 8. `dist/` output — Before vs After
+
+**Before** (TanStack Start / Vinxi):
+```
+dist/
+├── client/
+│   └── _build/
+│       ├── main-[hash].js    ← browser bundle
+│       └── main-[hash].css   ← styles
+│   (no index.html)
+└── server/
+    └── index.mjs             ← Node.js SSR server — useless for GitHub Pages
+```
+
+**After** (standard Vite SPA):
+```
+dist/
+├── index.html      ← SPA shell — served by GitHub Pages for all routes
+├── 404.html        ← copy of index.html — served when path has no matching file
+└── assets/
+    ├── index-[hash].js
+    └── index-[hash].css
+```
+
+The `dist/client/` and `dist/server/` subdirectories are completely gone. The entire deployable output is flat inside `dist/` — exactly what GitHub Pages (and any static CDN) expects.
+
+---
+
+#### 9. `.github/workflows/deploy.yml` — **Key changes**
+
+| Before | After | Reason |
+|---|---|---|
+| `upload-pages-artifact` + `deploy-pages` | `peaceiris/actions-gh-pages@v4` | GitHub Pages API pipeline requires `.output/public` which Vinxi never reliably produced. `peaceiris` simply commits and pushes `dist/` to `gh-pages` branch |
+| `publish_dir: dist/client` | `publish_dir: dist` | Output path changed with the Vite migration |
+| `npm run build` + `NITRO_PRESET=static` | `npm run build:gh` + `DEPLOY_TARGET=gh-pages` | Dedicated script ensures correct `base` path without affecting other builds |
+| No `404.html` step | `cp dist/index.html dist/404.html` | GitHub Pages SPA deep-link fix (see below) |
+
+**`404.html` explained**: GitHub Pages has no server-side rewrite rules (unlike Netlify's `_redirects` or Vercel's `vercel.json` rewrites). When a user directly visits `/talentflow/candidates`, GitHub Pages looks for `dist/candidates/index.html`, finds nothing, and serves `404.html`. Since `404.html` is identical to the SPA `index.html`, React and TanStack Router boot up, read the URL from the browser, match it to the `/candidates` route, and render the correct page — transparently.
+
