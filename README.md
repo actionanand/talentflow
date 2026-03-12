@@ -19,7 +19,7 @@ npm run build
 
 ## Live URL
 
-https://actionanand.github.io/anandraja/
+https://actionanand.github.io/talentflow/
 
 ## What is TanStack?
 
@@ -106,15 +106,15 @@ npx gitpick github_proj_url -b branch-name
 5. Cloning this project with skeleton
 
 ```bash
-git clone https://github.com/actionanand/ar-portfolio.git --branch 1-skeleton tanstack-proj-name
+git clone https://github.com/actionanand/talentflow.git --branch 1-skeleton tanstack-proj-name
 ```
 
 ```bash
-npx degit github:actionanand/ar-portfolio#1-skeleton angular-proj-name
+npx degit github:actionanand/talentflow#1-skeleton angular-proj-name
 ```
 
 ```bash
-npx gitpick https://github.com/actionanand/anandraja -b 1-skeleton angular-proj-name
+npx gitpick https://github.com/actionanand/talentflow -b 1-skeleton angular-proj-name
 ```
 
 ### Difference Between git clone, npx degit, and npx gitpick
