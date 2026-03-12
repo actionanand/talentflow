@@ -1,0 +1,111 @@
+name: CI / Deploy
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment; cancel in-progress runs
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Job 1 – Read project metadata
+  # ─────────────────────────────────────────────
+  meta:
+    name: Read project metadata
+    runs-on: ubuntu-latest
+    outputs:
+      project-name: ${{ steps.pkg.outputs.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract name from package.json
+        id: pkg
+        run: echo "name=$(node -p "require('./package.json').name")" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────
+  # Job 2 – Lint, type-check & test
+  # ─────────────────────────────────────────────
+  ci:
+    name: Lint, type-check & test
+    runs-on: ubuntu-latest
+    needs: meta
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ vars.NODE_VERSION || '24.11.1' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.1'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Biome – lint & format check
+        run: npm run check
+
+      - name: Run tests
+        run: npm test
+
+  # ─────────────────────────────────────────────
+  # Job 3 – Build
+  # ─────────────────────────────────────────────
+  build:
+    name: Build – ${{ needs.meta.outputs.project-name }}
+    runs-on: ubuntu-latest
+    needs: [meta, ci]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24.11.1
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.1'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          NODE_ENV: production
+          VITE_APP_NAME: ${{ needs.meta.outputs.project-name }}
+
+      - name: Upload build artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # TanStack Start (Nitro/Vinxi) outputs to .output/public for static,
+          # or .output for SSR. Adjust the path to match your adapter output.
+          path: .output/public
+
+  # ─────────────────────────────────────────────
+  # Job 4 – Deploy to GitHub Pages (main only)
+  # ─────────────────────────────────────────────
+  deploy:
+    name: Deploy – ${{ needs.meta.outputs.project-name }}
+    runs-on: ubuntu-latest
+    needs: [meta, build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
