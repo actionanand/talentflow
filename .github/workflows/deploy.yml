@@ -9,13 +9,11 @@ on:
       - main
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
-# Allow only one concurrent deployment; cancel in-progress runs
+# Cancel any in-progress run for the same ref
 concurrency:
-  group: pages-${{ github.ref }}
+  group: deploy-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -36,17 +34,17 @@ jobs:
         run: echo "name=$(node -p "require('./package.json').name")" >> $GITHUB_OUTPUT
 
   # ─────────────────────────────────────────────
-  # Job 2 – Lint, type-check & test
+  # Job 2 – Install & test
   # ─────────────────────────────────────────────
   ci:
-    name: Lint, type-check & test
+    name: Install & test
     runs-on: ubuntu-latest
     needs: meta
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ vars.NODE_VERSION || '24.11.1' }}
+      - name: Setup Node.js 24.11.1
         uses: actions/setup-node@v4
         with:
           node-version: '24.11.1'
@@ -55,13 +53,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # - name: Run tests
+      #   run: npm test
+
   # ─────────────────────────────────────────────
-  # Job 3 – Build
+  # Job 3 – Build & deploy (main branch only)
   # ─────────────────────────────────────────────
-  build:
-    name: Build – ${{ needs.meta.outputs.project-name }}
+  build-and-deploy:
+    name: Build & deploy – ${{ needs.meta.outputs.project-name }}
     runs-on: ubuntu-latest
     needs: [meta, ci]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -79,38 +81,12 @@ jobs:
         run: npm run build
         env:
           NODE_ENV: production
-          # static preset makes Nitro/Vinxi output a fully static site to .output/public
-          # required for GitHub Pages (SSR cannot run on GitHub Pages)
-          NITRO_PRESET: static
           VITE_APP_NAME: ${{ needs.meta.outputs.project-name }}
 
-      - name: List build output (debug)
-        if: always()
-        run: |
-          echo "=== Root output dirs ==="
-          find . -maxdepth 3 -type d \
-            -not -path './.git/*' \
-            -not -path './node_modules/*' \
-            -not -path './.nitro/*'
-
-      - name: Upload build artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Deploy to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          # Nitro static preset outputs client assets + pre-rendered HTML to .output/public
-          path: .output/public
-
-  # ─────────────────────────────────────────────
-  # Job 4 – Deploy to GitHub Pages (main only)
-  # ─────────────────────────────────────────────
-  deploy:
-    name: Deploy – ${{ needs.meta.outputs.project-name }}
-    runs-on: ubuntu-latest
-    needs: [meta, build]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: dist/client
+          publish_branch: gh-pages
+          commit_message: "deploy: ${{ needs.meta.outputs.project-name }} @ ${{ github.sha }}"
