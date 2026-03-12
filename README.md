@@ -221,6 +221,15 @@ navigate({ to: '/apply' })
 - ❌ Never import from it directly in your own code — use `src/router.tsx` instead
 - ❌ Never rename it — the plugin always outputs to `src/routeTree.gen.ts`
 
+#### Current route tree
+
+```
+__root__  (src/routes/__root.tsx)  ← shared layout: Header + Outlet + Footer
+  /               → Dashboard     (src/routes/index.tsx)
+  /about          → About         (src/routes/about.tsx)
+  /candidates     → Candidates    (src/routes/candidates.tsx)
+  /apply          → Apply         (src/routes/apply.tsx)
+```
 
 ### Adding A Route
 

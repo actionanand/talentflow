@@ -1,5 +1,6 @@
 import { createRouter as createTanStackRouter } from '@tanstack/react-router'
 import { routeTree } from './routeTree.gen'
+import { queryClient } from './query/client'
 
 // Vite injects import.meta.env.BASE_URL from the `base` config in vite.config.ts.
 // In production (GitHub Pages) this is '/talentflow/', locally it's '/'.
@@ -11,6 +12,7 @@ export function getRouter() {
   const router = createTanStackRouter({
     routeTree,
     basepath,
+    context: { queryClient },
     scrollRestoration: true,
     defaultPreload: 'intent',
     defaultPreloadStaleTime: 0,
