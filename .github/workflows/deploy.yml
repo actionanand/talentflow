@@ -81,12 +81,37 @@ jobs:
         run: npm run build
         env:
           NODE_ENV: production
+          # NITRO_PRESET=static tells Vinxi/Nitro to pre-render all routes to
+          # plain HTML files instead of producing an SSR server bundle.
+          # Without this, dist/client only has JS/CSS — no index.html —
+          # and GitHub Pages returns 404 for every request.
+          # With static preset, output goes to .output/public (index.html + assets).
+          NITRO_PRESET: static
           VITE_APP_NAME: ${{ needs.meta.outputs.project-name }}
+
+      - name: Detect build output directory
+        id: detect
+        run: |
+          if [ -f ".output/public/index.html" ]; then
+            echo "dir=.output/public" >> $GITHUB_OUTPUT
+            echo "✅ Found index.html at .output/public"
+          elif [ -f "dist/client/index.html" ]; then
+            echo "dir=dist/client" >> $GITHUB_OUTPUT
+            echo "✅ Found index.html at dist/client"
+          else
+            echo "❌ No index.html found. Build output tree:"
+            find . -name "index.html" \
+              -not -path './node_modules/*' -not -path './.git/*' || true
+            find . -maxdepth 4 -type d \
+              -not -path './node_modules/*' -not -path './.git/*' || true
+            exit 1
+          fi
 
       - name: Deploy to gh-pages branch
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: dist/client
+          publish_dir: ${{ steps.detect.outputs.dir }}
           publish_branch: gh-pages
+          enable_jekyll: false
           commit_message: "deploy: ${{ needs.meta.outputs.project-name }} @ ${{ github.sha }}"
