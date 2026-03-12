@@ -6,9 +6,10 @@ import tailwindcss from '@tailwindcss/vite'
 
 // Read repo name from package.json so the base path stays in sync automatically.
 // GitHub project pages are served at: username.github.io/<repo-name>/
-// Change to '/' if using a custom domain or a user/org root page.
+// 'gh-pages' mode is used by `npm run build:gh` (and CI). Other builds use '/'.
 import pkg from './package.json' with { type: 'json' }
-const base = process.env.NODE_ENV === 'production' ? `/${pkg.name}/` : '/'
+const isGhPages = process.env.DEPLOY_TARGET === 'gh-pages'
+const base = isGhPages ? `/${pkg.name}/` : '/'
 
 export default defineConfig({
   base,
