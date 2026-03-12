@@ -17,6 +17,52 @@ To build this application for production:
 npm run build
 ```
 
+## Cloning Guide
+
+1.  Clone only the remote primary HEAD (default: origin/main)
+
+```bash
+git clone <url> --single-branch
+```
+
+2. Only specific branch
+
+```bash
+git clone <url> --branch <branch> --single-branch [<folder>]
+```
+
+```bash
+git clone <url> --branch <branch>
+```
+
+3. Cloning repositories using **degit**
+   - main branch is default.
+
+```bash
+npx degit github:user/repo#branch-name <folder-name>
+```
+
+4. Cloning repositories using **gitpick**
+
+```bash
+npx gitpick github_proj_url -b branch-name
+```
+
+5. Cloning this project with skeleton
+
+```bash
+git clone https://github.com/actionanand/ar-portfolio.git --branch 1-skeleton tanstack-proj-name
+```
+
+```bash
+npx degit github:actionanand/ar-portfolio#1-skeleton angular-proj-name
+```
+
+```bash
+npx gitpick https://github.com/actionanand/anandraja -b 1-skeleton angular-proj-name
+```
+
+
 ## Testing
 
 This project uses [Vitest](https://vitest.dev/) for testing. You can run the tests with:
@@ -48,8 +94,6 @@ npm run lint
 npm run format
 npm run check
 ```
-
-
 
 ## Routing
 
