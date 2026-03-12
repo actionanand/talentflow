@@ -79,13 +79,24 @@ jobs:
         run: npm run build
         env:
           NODE_ENV: production
+          # static preset makes Nitro/Vinxi output a fully static site to .output/public
+          # required for GitHub Pages (SSR cannot run on GitHub Pages)
+          NITRO_PRESET: static
           VITE_APP_NAME: ${{ needs.meta.outputs.project-name }}
+
+      - name: List build output (debug)
+        if: always()
+        run: |
+          echo "=== Root output dirs ==="
+          find . -maxdepth 3 -type d \
+            -not -path './.git/*' \
+            -not -path './node_modules/*' \
+            -not -path './.nitro/*'
 
       - name: Upload build artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # TanStack Start (Nitro/Vinxi) outputs to .output/public for static,
-          # or .output for SSR. Adjust the path to match your adapter output.
+          # Nitro static preset outputs client assets + pre-rendered HTML to .output/public
           path: .output/public
 
   # ─────────────────────────────────────────────
